@@ -21,38 +21,38 @@ from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-
+from collections import defaultdict
 # ----------------------------------
 # :: ENV Variable Loader
 # ----------------------------------
 
 contractors = [
-    # "Air Conditioning Contractors",
-    # "Building Alterations",
-    # "Carpentry Contractors",
-    # "Demolition Contractors",
-    # "Drywall Contractors",
-    # "Electrical Contractors",
-    # "Excavating Contractors",
-    # "General Contractors",
-    # "Heating Contractors",
-    # "Mason Contractors",
-    # "Mechanical Contractors",
-    # "Painting Contractors",
-    # "Paving Contractors",
-    # "Plumbing Contractors",
-    # "Roofing Contractors",
-    # "Tile Contractors",
-    # "Glass & Glazing Contractors",
-    # "Resilient Floor Contractors",
-    # "Landscape Construction",
-    # "Concrete Contrs.--Sidewalks/Floors/Flatwork",
-    # "Structural Steel Fabricators & Contractors",
-    # "Building Maintenance Contractors",
-    # "Sheet Metal Contractors & Fabricators",
-    # "Sewer Contractors",
-    # "Plastering & Lathing Contractors",
-    # "Construction Management",
+    "Air Conditioning Contractors",
+    "Building Alterations",
+    "Carpentry Contractors",
+    "Demolition Contractors",
+    "Drywall Contractors",
+    "Electrical Contractors",
+    "Excavating Contractors",
+    "General Contractors",
+    "Heating Contractors",
+    "Mason Contractors",
+    "Mechanical Contractors",
+    "Painting Contractors",
+    "Paving Contractors",
+    "Plumbing Contractors",
+    "Roofing Contractors",
+    "Tile Contractors",
+    "Glass & Glazing Contractors",
+    "Resilient Floor Contractors",
+    "Landscape Construction",
+    "Concrete Contrs.--Sidewalks/Floors/Flatwork",
+    "Structural Steel Fabricators & Contractors",
+    "Building Maintenance Contractors",
+    "Sheet Metal Contractors & Fabricators",
+    "Sewer Contractors",
+    "Plastering & Lathing Contractors",
+    "Construction Management",
 ]
 
 # ----------------------------------
@@ -60,11 +60,7 @@ contractors = [
 # ----------------------------------
 
 locations = [
-    # "New York - NYC, Long Island, Hudson Valley, Capital District Region",
-    # "New York Upstate - Buffalo, Syracuse Region",
-    # "New York, NY",
-    # "New York Mills, MN",
-    # "New York Mills, NY",
+    "Arizona Region",
 ]
 
 
@@ -109,6 +105,7 @@ base_url = os.getenv("BASE_URL")
 contact_us = os.getenv("CONTACT_US")
 company_name = os.getenv("COMPANY_NAME")
 chrome_driver = os.getenv("CHROME_DRIVER")
+mongo_connection = os.getenv("MONGO_CONNECTION")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 
@@ -161,7 +158,9 @@ class BlueBook:
         try:
             for location in locations:
                 for contractor in contractors:
-                    params = {"region": location, "searchTerm": contractor}
+                    self.location = location
+                    self.contractor = contractor
+                    params = {"region": 21, "searchTerm": contractor}
                     query_string = urlencode(params)
                     url = f"{base_url}?{query_string}"
                     if url is not None and url.strip() is not None:
@@ -223,6 +222,7 @@ class BlueBook:
             logging.error(f"An error occurred in start_requests: {e}")
         finally:
             self.get_element_page()
+
     # ----------------------------------
     # :: Phone Page Function
     # ----------------------------------
@@ -277,9 +277,7 @@ class BlueBook:
                     else:
                         logging.warning(f"No {element_name} found on {full_url}")
                 except Exception as e:
-                    logging.error(
-                        f"Error while processing {full_url}"
-                    )
+                    logging.error(f"Error while processing {full_url}")
 
     # ----------------------------------
     # :: Google Chrome Function
@@ -299,7 +297,7 @@ class BlueBook:
             chrome_options.add_argument("--enable-logging")
             chrome_options.add_argument("--disable-dev-shm-usage")
             service = Service(executable_path=chrome_driver_path)
-            driver = uc.Chrome(service=service, options=chrome_options)
+            driver = uc.Chrome()
             return driver
 
         except EnvironmentError as env_err:
@@ -326,7 +324,7 @@ class BlueBook:
 
     def mongodb_connection_function(self, db_name, collection_name):
         try:
-            client = pymongo.MongoClient()
+            client = pymongo.MongoClient(mongo_connection)
             db = client[db_name]
             collection = db[collection_name]
             return {"client": client, "collection": collection}
@@ -441,50 +439,59 @@ class BlueBook:
 
     def excel_file_save_function(self):
         try:
-            results = self.collection.find(
-                {"send_email": "No", "company_name": {"$exists": True}}
-            )
-            documents = []
-            for doc in results:
-                doc["website"] = doc.get("website", "not found")
-                doc["phone"] = doc.get("phone", "not found")
-                doc["dir"] = doc.get("dir", "not found")
-                doc["address"] = doc.get("address", "not found")
-                doc["company_name"] = doc.get("company_name", "not found")
-                documents.append(doc)
-            required_columns = ["company_name", "phone", "dir", "website", "address"]
-            if documents:
-                logging.info(f"Found {len(documents)} valid documents.")
-
-                df = pd.DataFrame(documents, columns=required_columns)
-
-                if not os.path.exists(excel_sheet_folder_path):
-                    os.makedirs(excel_sheet_folder_path)
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                file_name = f"{os.path.join(excel_sheet_folder_path, timestamp)}.xlsx"
-
-                try:
-                    logging.info(f"Saving file as {file_name}...")
-                    df.to_excel(file_name, index=False, header=True)
-                except Exception as e:
-                    logging.error(f"Error saving Excel file: {e}")
-                    return "An error occurred while saving the Excel file."
-                email_status = self.email_send(
-                    file_path=file_name, count=len(documents)
+            for contractor in contractors:
+                logging.info(f"Processing records for: {contractor}")
+                results = self.collection.find(
+                    {
+                        "trade": contractor,
+                        "send_email": "No",
+                        "company_name": {"$exists": True},
+                    }
                 )
-                if email_status:
-                    logging.info("Email sent successfully.")
-                    self.collection.update_many(
-                        {"send_email": "No"}, {"$set": {"send_email": "Yes"}}
-                    )
-                return f"File saved as {file_name}, with {len(documents)} documents."
-            else:
-                logging.warning("No valid documents found to save.")
-                return "No valid documents found to save."
+                documents = []
+                for doc in results:
+                    doc = defaultdict(lambda: "not found", doc)
+                    documents.append(doc)
+                    
+                required_columns = [
+                    "company_name",
+                    "phone",
+                    "dir",
+                    "website",
+                    "address",
+                    "location",
+                    "trade",
+                ]
+                if documents:
+                    logging.info(f"Found {len(documents)} valid documents for {contractor}.")
+                    df = pd.DataFrame(documents, columns=required_columns)
+                    if not os.path.exists(excel_sheet_folder_path):
+                        os.makedirs(excel_sheet_folder_path)
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    file_name = os.path.join(excel_sheet_folder_path, f"{contractor}_{timestamp}.xlsx")
+                    
+                    try:
+                        logging.info(f"Saving file as {file_name} for {contractor}...")
+                        df.to_excel(file_name, index=False, header=True)
+                    except Exception as e:
+                        logging.error(f"Error saving Excel file for {contractor}: {e}")
+                        continue
+                    email_status = self.email_send(file_path=file_name, count=len(documents))
+                    if email_status:
+                        logging.info(f"Email sent successfully for {contractor}.")
+                        self.collection.update_many(
+                            {"send_email": "No", "trade": contractor}, {"$set": {"send_email": "Yes"}}
+                        )
+                    else:
+                        logging.error(f"Email failed for {contractor}.")
+                else:
+                    logging.warning(f"No valid documents found for {contractor}.")
+            
+            return "All cities processed."
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
-            return "An error occurred while saving the file."
-
+            return "An error occurred while processing the file."
+            
     # ----------------------------------
     # :: ___del__ function
     # ----------------------------------
@@ -494,13 +501,13 @@ class BlueBook:
     """
 
     def __del__(self):
-        if self.driver:
-            self.driver.quit()
-        if self.client:
-            self.client.close()
         try:
             logging.info("Calling excel file save function...")
-            # self.excel_file_save_function()
+            self.excel_file_save_function()
+            if self.driver:
+                self.driver.quit()
+            if self.client:
+                self.client.close()
         except Exception as e:
             logging.error(f"Error while saving Excel file: {e}")
 
