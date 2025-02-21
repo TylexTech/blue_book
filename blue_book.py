@@ -9,6 +9,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from urllib.parse import urljoin
 from urllib.parse import urlencode
+from collections import defaultdict
 from email.mime.text import MIMEText
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
@@ -19,49 +20,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from collections import defaultdict
-# ----------------------------------
-# :: ENV Variable Loader
-# ----------------------------------
-
-contractors = [
-    "Air Conditioning Contractors",
-    "Building Alterations",
-    "Carpentry Contractors",
-    "Demolition Contractors",
-    "Drywall Contractors",
-    "Electrical Contractors",
-    "Excavating Contractors",
-    "General Contractors",
-    "Heating Contractors",
-    "Mason Contractors",
-    "Mechanical Contractors",
-    "Painting Contractors",
-    "Paving Contractors",
-    "Plumbing Contractors",
-    "Roofing Contractors",
-    "Tile Contractors",
-    "Glass & Glazing Contractors",
-    "Resilient Floor Contractors",
-    "Landscape Construction",
-    "Concrete Contrs.--Sidewalks/Floors/Flatwork",
-    "Structural Steel Fabricators & Contractors",
-    "Building Maintenance Contractors",
-    "Sheet Metal Contractors & Fabricators",
-    "Sewer Contractors",
-    "Plastering & Lathing Contractors",
-    "Construction Management",
-]
-
-# ----------------------------------
-# :: ENV Variable Loader
-# ----------------------------------
-
-locations = [
-    "Arizona Region",
-]
 
 
 # ----------------------------------
@@ -99,6 +58,7 @@ area = os.getenv("AREA")
 phone = os.getenv("PHONE")
 trade = os.getenv("TRADE")
 button = os.getenv("BUTTON")
+region = os.getenv("REGION")
 website = os.getenv("WEBSITE")
 address = os.getenv("ADDRESS")
 base_url = os.getenv("BASE_URL")
@@ -106,9 +66,10 @@ contact_us = os.getenv("CONTACT_US")
 company_name = os.getenv("COMPANY_NAME")
 chrome_driver = os.getenv("CHROME_DRIVER")
 mongo_connection = os.getenv("MONGO_CONNECTION")
+locations = os.getenv("LOCATION", "").split(",")
+contractors = os.getenv("CONTRACTORS", "").split(",")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
-
 
 # ----------------------------------
 # :: Blue Book Class
@@ -158,9 +119,9 @@ class BlueBook:
         try:
             for location in locations:
                 for contractor in contractors:
-                    self.location = location
-                    self.contractor = contractor
-                    params = {"region": 21, "searchTerm": contractor}
+                    self.location = location.strip()
+                    self.contractor = contractor.strip()
+                    params = {"region": region, "searchTerm": contractor.strip()}
                     query_string = urlencode(params)
                     url = f"{base_url}?{query_string}"
                     if url is not None and url.strip() is not None:
