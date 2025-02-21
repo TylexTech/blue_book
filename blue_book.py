@@ -68,6 +68,7 @@ chrome_driver = os.getenv("CHROME_DRIVER")
 mongo_connection = os.getenv("MONGO_CONNECTION")
 locations = os.getenv("LOCATION", "").split(",")
 contractors = os.getenv("CONTRACTORS", "").split(",")
+contractors_excel = os.getenv("CONTRACTORS_EXCEL", "").split(",")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 
@@ -400,7 +401,7 @@ class BlueBook:
 
     def excel_file_save_function(self):
         try:
-            for contractor in contractors:
+            for contractor in contractors_excel:
                 logging.info(f"Processing records for: {contractor}")
                 results = self.collection.find(
                     {
