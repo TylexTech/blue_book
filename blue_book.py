@@ -22,7 +22,6 @@ from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support import expected_conditions as EC
 
 
-
 # ----------------------------------
 # :: ENV Variable Loader
 # ----------------------------------
@@ -119,12 +118,45 @@ class BlueBook:
     def start_requests(self):
         try:
             for location in locations:
+                self.location = location.strip()
                 for contractor in contractors:
-                    self.location = location.strip()
+                    self.driver.get("https://www.thebluebook.com/")
                     self.contractor = contractor.strip()
-                    params = {"region": region, "searchTerm": contractor.strip()}
-                    query_string = urlencode(params)
-                    url = f"{base_url}?{query_string}"
+                    wait = WebDriverWait(self.driver, 30)
+                    search_term_input = wait.until(
+                        EC.visibility_of_element_located(
+                            (
+                                By.XPATH,
+                                "/html/body/div[1]/main/section/div/div/div[1]/form/div/div[2]/div/input",
+                            )
+                        )
+                    )
+                    search_term_input.clear()
+                    search_term_input.send_keys(contractor)
+
+                    region_input = wait.until(
+                        EC.presence_of_element_located(
+                            (
+                                By.XPATH,
+                                "/html/body/div[1]/main/section/div/div/div[1]/form/div/div[3]/div[1]/div/input",
+                            )
+                        )
+                    )
+                    region_input.clear()
+                    region_input.send_keys(location)
+
+                    search_buttons = self.driver.find_elements(
+                        By.XPATH,
+                        "/html/body/div[1]/main/section/div/div/div[1]/form/div/div[3]/div[1]/div/button",
+                    )
+                    if search_buttons:
+                        current_url = self.driver.current_url
+                        search_buttons[0].click()
+                        wait.until(lambda driver: driver.current_url != current_url)
+                    else:
+                        logging.error("Search button not found!")
+
+                    url = self.driver.current_url
                     if url is not None and url.strip() is not None:
                         self.driver.get(url)
                         page_number = self.xpath_varification_function(
@@ -401,59 +433,77 @@ class BlueBook:
 
     def excel_file_save_function(self):
         try:
+            db_name = "bluebook"
+            collection_name = "company_details"
+            client = pymongo.MongoClient(mongo_connection)
+            db = client[db_name]
+            collection = db[collection_name]
             for contractor in contractors_excel:
-                logging.info(f"Processing records for: {contractor}")
-                results = self.collection.find(
-                    {
-                        "trade": contractor,
-                        "send_email": "No",
-                        "company_name": {"$exists": True},
-                    }
-                )
-                documents = []
-                for doc in results:
-                    doc = defaultdict(lambda: "not found", doc)
-                    documents.append(doc)
-                    
-                required_columns = [
-                    "company_name",
-                    "phone",
-                    "dir",
-                    "website",
-                    "address",
-                    "location",
-                    "trade",
-                ]
-                if documents:
-                    logging.info(f"Found {len(documents)} valid documents for {contractor}.")
-                    df = pd.DataFrame(documents, columns=required_columns)
-                    if not os.path.exists(excel_sheet_folder_path):
-                        os.makedirs(excel_sheet_folder_path)
-                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                    file_name = os.path.join(excel_sheet_folder_path, f"{contractor}_{timestamp}.xlsx")
-                    
-                    try:
-                        logging.info(f"Saving file as {file_name} for {contractor}...")
-                        df.to_excel(file_name, index=False, header=True)
-                    except Exception as e:
-                        logging.error(f"Error saving Excel file for {contractor}: {e}")
-                        continue
-                    email_status = self.email_send(file_path=file_name, count=len(documents))
-                    if email_status:
-                        logging.info(f"Email sent successfully for {contractor}.")
-                        self.collection.update_many(
-                            {"send_email": "No", "trade": contractor}, {"$set": {"send_email": "Yes"}}
+                for location in locations:
+                    logging.info(f"Processing records for: {contractor}")
+                    results = collection.find(
+                        {
+                            "trade": contractor.strip(),
+                            "location": location,
+                            "send_email": "Yes",
+                            "company_name": {"$exists": True},
+                        }
+                    )
+                    documents = []
+                    for doc in results:
+                        doc = defaultdict(lambda: "not found", doc)
+                        documents.append(doc)
+
+                    required_columns = [
+                        "company_name",
+                        "phone",
+                        "dir",
+                        "website",
+                        "address",
+                        "location",
+                        "trade",
+                    ]
+                    if documents:
+                        logging.info(
+                            f"Found {len(documents)} valid documents for {contractor}."
                         )
+                        df = pd.DataFrame(documents, columns=required_columns)
+                        if not os.path.exists(excel_sheet_folder_path):
+                            os.makedirs(excel_sheet_folder_path)
+                        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                        file_name = os.path.join(
+                            excel_sheet_folder_path, f"{contractor}_{timestamp}.xlsx"
+                        )
+
+                        try:
+                            logging.info(
+                                f"Saving file as {file_name} for {contractor}..."
+                            )
+                            df.to_excel(file_name, index=False, header=True)
+                        except Exception as e:
+                            logging.error(
+                                f"Error saving Excel file for {contractor}: {e}"
+                            )
+                            continue
+                        email_status = self.email_send(
+                            file_path=file_name, count=len(documents)
+                        )
+                        if email_status:
+                            logging.info(f"Email sent successfully for {contractor}.")
+                            self.collection.update_many(
+                                {"send_email": "No", "trade": contractor},
+                                {"$set": {"send_email": "Yes"}},
+                            )
+                        else:
+                            logging.error(f"Email failed for {contractor}.")
                     else:
-                        logging.error(f"Email failed for {contractor}.")
-                else:
-                    logging.warning(f"No valid documents found for {contractor}.")
-            
-            return "All cities processed."
+                        logging.warning(f"No valid documents found for {contractor}.")
+
+                return "All cities processed."
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
             return "An error occurred while processing the file."
-            
+
     # ----------------------------------
     # :: ___del__ function
     # ----------------------------------
