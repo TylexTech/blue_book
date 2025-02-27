@@ -20,13 +20,13 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support import expected_conditions as EC
-
+from selenium import webdriver
 
 # ----------------------------------
 # :: ENV Variable Loader
 # ----------------------------------
 
-""" 
+"""
 The load_dotenv() function loads environment variables from a .env file into the environment, allowing you to access them using os.getenv() in your code.
 """
 
@@ -37,7 +37,7 @@ load_dotenv()
 # :: Logging Variable
 # ----------------------------------
 
-""" 
+"""
 This code sets the logging level of the "undetected_chromedriver" logger to ERROR, suppressing less severe log messages.
 """
 
@@ -47,7 +47,7 @@ logging.getLogger("undetected_chromedriver").setLevel(logging.ERROR)
 # :: Xpath Paths
 # ----------------------------------
 
-""" 
+"""
 This code retrieves environment variable values and assigns them to respective variables such as DIR, PHONE, WEBSITE, ADDRESS, etc.
 """
 
@@ -75,7 +75,7 @@ excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 # :: Blue Book Class
 # ----------------------------------
 
-""" 
+"""
 This class, BlueBook, performs web scraping to gather data from a website, processes it, stores it in a MongoDB database, and saves the results to an Excel file.
 """
 
@@ -277,7 +277,7 @@ class BlueBook:
     # :: Google Chrome Function
     # ----------------------------------
 
-    """ 
+    """
     This function initializes a Chrome WebDriver with custom options and handles any errors during setup.
     """
 
@@ -291,7 +291,7 @@ class BlueBook:
             chrome_options.add_argument("--enable-logging")
             chrome_options.add_argument("--disable-dev-shm-usage")
             service = Service(executable_path=chrome_driver_path)
-            driver = uc.Chrome()
+            driver = webdriver.Chrome(service=service, options=chrome_options)
             return driver
 
         except EnvironmentError as env_err:
@@ -312,7 +312,7 @@ class BlueBook:
     # :: Google Chrome Function
     # ----------------------------------
 
-    """ 
+    """
     This function connects to a MongoDB database and collection, logging success or error messages based on the outcome.
     """
 
@@ -332,8 +332,8 @@ class BlueBook:
     # :: Google Chrome Function
     # ----------------------------------
 
-    """ 
-    This function verifies the presence of an element(s) on a webpage using a specified XPath, with a timeout option, 
+    """
+    This function verifies the presence of an element(s) on a webpage using a specified XPath, with a timeout option,
     and handles errors if the element is not found or other issues occur.
     """
 
@@ -433,19 +433,14 @@ class BlueBook:
 
     def excel_file_save_function(self):
         try:
-            db_name = "bluebook"
-            collection_name = "company_details"
-            client = pymongo.MongoClient(mongo_connection)
-            db = client[db_name]
-            collection = db[collection_name]
-            for contractor in contractors_excel:
-                for location in locations:
+            for location in locations:
+                for contractor in contractors:
                     logging.info(f"Processing records for: {contractor}")
-                    results = collection.find(
+                    results = self.collection.find(
                         {
-                            "trade": contractor.strip(),
+                            "trade": contractor,
                             "location": location,
-                            "send_email": "Yes",
+                            "send_email": "No",
                             "company_name": {"$exists": True},
                         }
                     )
@@ -508,7 +503,7 @@ class BlueBook:
     # :: ___del__ function
     # ----------------------------------
 
-    """ 
+    """
     This destructor closes the webdriver, MongoDB client, and attempts to save data to an Excel file upon object deletion.
     """
 
@@ -528,7 +523,7 @@ class BlueBook:
 # :: Main Function
 # ----------------------------------
 
-""" 
+"""
 This main function instantiates the BlueBook spider, starts the scraping process, and handles potential exceptions.
 """
 
@@ -536,7 +531,7 @@ This main function instantiates the BlueBook spider, starts the scraping process
 def main():
     try:
         spider = BlueBook()
-        spider.start_requests()
+        spider.get_element_page()
     except Exception as e:
         logging.error(f"An error occurred in the main function: {e}")
 
@@ -545,7 +540,7 @@ def main():
 # :: Run code
 # ----------------------------------
 
-""" 
+"""
 This code block ensures the main() function is executed only when the script is run directly (not imported as a module).
 """
 
