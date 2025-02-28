@@ -286,12 +286,12 @@ class BlueBook:
             chrome_driver_path = os.getenv("CHROME_DRIVER")
             chrome_options = Options()
             chrome_options.add_argument("--v=1")
-            chrome_options.add_argument("--headless")
+            # chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--enable-logging")
             chrome_options.add_argument("--disable-dev-shm-usage")
             service = Service(executable_path=chrome_driver_path)
-            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver = uc.Chrome(service=service, options=chrome_options)
             return driver
 
         except EnvironmentError as env_err:
@@ -531,7 +531,7 @@ This main function instantiates the BlueBook spider, starts the scraping process
 def main():
     try:
         spider = BlueBook()
-        spider.get_element_page()
+        spider.start_requests()
     except Exception as e:
         logging.error(f"An error occurred in the main function: {e}")
 
