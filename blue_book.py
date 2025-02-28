@@ -8,19 +8,16 @@ import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 from urllib.parse import urljoin
-from urllib.parse import urlencode
 from collections import defaultdict
 from email.mime.text import MIMEText
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from email.mime.multipart import MIMEMultipart
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.support import expected_conditions as EC
-from selenium import webdriver
+from selenium.common.exceptions import WebDriverException,TimeoutException
 
 # ----------------------------------
 # :: ENV Variable Loader
@@ -56,19 +53,18 @@ page = os.getenv("PAGE")
 area = os.getenv("AREA")
 phone = os.getenv("PHONE")
 trade = os.getenv("TRADE")
-button = os.getenv("BUTTON")
 region = os.getenv("REGION")
 website = os.getenv("WEBSITE")
 address = os.getenv("ADDRESS")
 base_url = os.getenv("BASE_URL")
 contact_us = os.getenv("CONTACT_US")
 company_name = os.getenv("COMPANY_NAME")
+search_button = os.getenv("SEARCH_BUTTON")
 chrome_driver = os.getenv("CHROME_DRIVER")
+search_term = os.getenv("SEARCH_TERM_INPUT")
 mongo_connection = os.getenv("MONGO_CONNECTION")
 locations = os.getenv("LOCATION", "").split(",")
 contractors = os.getenv("CONTRACTORS", "").split(",")
-contractors_excel = os.getenv("CONTRACTORS_EXCEL", "").split(",")
-excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 
 # ----------------------------------
@@ -117,105 +113,182 @@ class BlueBook:
 
     def start_requests(self):
         try:
+            if not locations or not contractors:
+                logging.error("Locations or contractors list is empty.")
+                return
+
             for location in locations:
                 self.location = location.strip()
+                if not self.location:
+                    logging.warning("Empty location encountered, skipping.")
+                    continue
+
                 for contractor in contractors:
-                    self.driver.get("https://www.thebluebook.com/")
                     self.contractor = contractor.strip()
-                    wait = WebDriverWait(self.driver, 30)
-                    search_term_input = wait.until(
-                        EC.visibility_of_element_located(
-                            (
-                                By.XPATH,
-                                "/html/body/div[1]/main/section/div/div/div[1]/form/div/div[2]/div/input",
-                            )
-                        )
-                    )
-                    search_term_input.clear()
-                    search_term_input.send_keys(contractor)
+                    if not self.contractor:
+                        logging.warning("Empty contractor encountered, skipping.")
+                        continue
 
-                    region_input = wait.until(
-                        EC.presence_of_element_located(
-                            (
-                                By.XPATH,
-                                "/html/body/div[1]/main/section/div/div/div[1]/form/div/div[3]/div[1]/div/input",
-                            )
-                        )
-                    )
-                    region_input.clear()
-                    region_input.send_keys(location)
+                    logging.info(f"Processing contractor: {self.contractor} in location: {self.location}")
+                    self.driver.get(base_url)
+                    href_data_list = self.page_number_return(contractor=contractor, location=location)
+                    
+                    if not href_data_list:
+                        logging.warning(f"No hrefs found to process for {contractor} in {location}.")
+                        continue
 
-                    search_buttons = self.driver.find_elements(
-                        By.XPATH,
-                        "/html/body/div[1]/main/section/div/div/div[1]/form/div/div[3]/div[1]/div/button",
-                    )
-                    if search_buttons:
-                        current_url = self.driver.current_url
-                        search_buttons[0].click()
-                        wait.until(lambda driver: driver.current_url != current_url)
+                    operations = []
+                    send_email = "No"
+
+                    for data in href_data_list:
+                        if "href" not in data:
+                            logging.warning("Invalid href data encountered, skipping.")
+                            continue
+
+                        operation = pymongo.UpdateOne(
+                            {"href": data["href"]},
+                            {
+                                "$setOnInsert": {
+                                    **data,
+                                    "send_email": send_email,
+                                    "location": self.location,
+                                    "trade": self.contractor,
+                                }
+                            },
+                            upsert=True,
+                        )
+                        operations.append(operation)
+
+                    if operations:
+                        result = self.collection.bulk_write(operations)
+                        logging.info(f"Bulk write completed: {result.inserted_count} inserted, {result.modified_count} updated.")
                     else:
-                        logging.error("Search button not found!")
+                        logging.info("No new hrefs to insert.")
 
-                    url = self.driver.current_url
-                    if url is not None and url.strip() is not None:
-                        self.driver.get(url)
-                        page_number = self.xpath_varification_function(
-                            driver=self.driver, xpath=page, timeout=20
-                        )
-                        page_text = page_number[0].text if page_number else None
-                        numbers = max(map(int, re.findall(r"\d+", page_text)))
-                        self.collection.create_index("href", unique=True)
-                        href_data_list = []
-                        for i in range(1, int(numbers) + 1):
-                            page_url = f"{url}&page={i}"
-                            self.driver.get(page_url)
-                            anchor_elements = self.xpath_varification_function(
-                                self.driver, contact_us
-                            )
-                            page_hrefs = [
-                                {"href": anchor.get_attribute("href")}
-                                for anchor in anchor_elements
-                                if anchor.get_attribute("href")
-                            ]
-
-                            href_data_list.extend(page_hrefs)
-
-                            logging.info(
-                                f"Processed page {i} and extracted {len(page_hrefs)} hrefs."
-                            )
-
-                        if href_data_list:
-                            operations = []
-                            send_email = "No"
-
-                            for data in href_data_list:
-                                operation = pymongo.UpdateOne(
-                                    {"href": data["href"]},
-                                    {
-                                        "$setOnInsert": {
-                                            **data,
-                                            "send_email": send_email,
-                                            "location": self.location,
-                                            "trade": self.contractor,
-                                        }
-                                    },
-                                    upsert=True,
-                                )
-                                operations.append(operation)
-
-                            if operations:
-                                result = self.collection.bulk_write(operations)
-                                logging.info(
-                                    f"Bulk write operation completed: {result.inserted_count} inserted, {result.modified_count} updated."
-                                )
-                            else:
-                                logging.info("No new hrefs to insert.")
-                        else:
-                            logging.warning("No hrefs found to process.")
         except Exception as e:
-            logging.error(f"An error occurred in start_requests: {e}")
+            logging.error(f"An error occurred in start_requests: {e}", exc_info=True)
         finally:
             self.get_element_page()
+
+
+
+    def page_number_return(self, contractor, location):
+        try:
+            url = self.perform_search_and_input_fields(contractor=contractor, location=location)
+            if not url or not url.strip():
+                logging.error("Invalid URL provided.")
+                return None
+
+            self.driver.get(url)
+            logging.info(f"Fetching page number from URL: {url}")
+
+            page_number = self.xpath_varification_function(self.driver, page, timeout=20)
+
+            if not page_number:
+                logging.error("Page number element not found.")
+                return None
+
+            page_text = page_number[0].text if page_number else None
+            if not page_text:
+                logging.error("Failed to extract page number text.")
+                return None
+
+            numbers = max(map(int, re.findall(r"\d+", page_text)))
+            self.collection.create_index("href", unique=True)
+
+            href_data_list = []
+            for i in range(1, numbers + 1):
+                page_url = f"{url}&page={i}"
+                self.driver.get(page_url)
+                logging.info(f"Processing page {i}: {page_url}")
+
+                anchor_elements = self.xpath_varification_function(self.driver, contact_us)
+
+                if not anchor_elements:
+                    logging.warning(f"No anchor elements found on page {i}.")
+                    continue
+
+                page_hrefs = [
+                    {"href": anchor.get_attribute("href")}
+                    for anchor in anchor_elements if anchor.get_attribute("href")
+                ]
+
+                if page_hrefs:
+                    href_data_list.extend(page_hrefs)
+                    logging.info(f"Extracted {len(page_hrefs)} hrefs from page {i}.")
+
+            if not href_data_list:
+                logging.warning("No hrefs collected.")
+                return None
+
+            existing_hrefs = set(
+                doc["href"] for doc in self.collection.find(
+                    {"href": {"$in": [data["href"] for data in href_data_list]}},
+                    {"href": 1}
+                )
+            )
+
+            new_hrefs = [data for data in href_data_list if data["href"] not in existing_hrefs]
+
+            if not new_hrefs:
+                logging.info("All hrefs already exist in the database. Skipping.")
+                return None
+
+            logging.info(f"Returning {len(new_hrefs)} new hrefs.")
+            return new_hrefs
+
+        except Exception as e:
+            logging.error(f"An error occurred in page_number_return: {e}", exc_info=True)
+            return None
+
+
+    # -----------------------------------------
+    # :: Perform Search and Input Function
+    # -----------------------------------------
+
+    """
+    This function automates a search by entering a contractor and location into input fields, clicking the search button, and returning the updated URL. 
+    If elements are missing or an error occurs, it logs the issue and returns None.
+    """
+    
+    def perform_search_and_input_fields(self, contractor, location):
+        try:
+            wait = WebDriverWait(self.driver, 30)
+            logging.info(f"Performing search for contractor: {contractor} in location: {location}")
+
+ 
+            search_term_input = self.xpath_varification_function(self.driver, search_term)
+            if search_term_input:
+                search_term_input[0].clear()
+                search_term_input[0].send_keys(contractor)
+            else:
+                logging.error("Search term input field not found!")
+                return None  
+
+
+            region_input = self.xpath_varification_function(self.driver, region)
+            if region_input:
+                region_input[0].clear()
+                region_input[0].send_keys(location)
+            else:
+                logging.error("Region input field not found!")
+                return None 
+
+            search_buttons = self.driver.find_elements(By.XPATH, search_button)
+            if search_buttons:
+                current_url = self.driver.current_url
+                search_buttons[0].click()
+                wait.until(lambda driver: driver.current_url != current_url)
+                logging.info("Search executed successfully.")
+                return self.driver.current_url
+            else:
+                logging.error("Search button not found!")
+                return None 
+
+        except Exception as e:
+            logging.error(f"An error occurred in perform_search_and_input_fields: {e}", exc_info=True)
+            return None
+
 
     # ----------------------------------
     # :: Phone Page Function
@@ -337,38 +410,30 @@ class BlueBook:
     and handles errors if the element is not found or other issues occur.
     """
 
-    def xpath_varification_function(self, driver, xpath, timeout=20):
-
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.XPATH, xpath))
-        )
-        elements = driver.find_elements(By.XPATH, xpath)
-        if elements:
-            return elements
-
-    # ----------------------------------
-    # :: MongoDb Update Function
-    # ----------------------------------
-
-    """
-    The mongodb_update_function updates a document in a MongoDB collection or inserts it if it doesn't exist, logging the outcome.
-    """
-
-    def mongodb_update_function(self, collection, element_name, element, doc_id):
+    def xpath_varification_function(self, driver, xpath, timeout=10):
         try:
-            result = collection.update_one(
-                {"_id": doc_id}, {"$set": {element_name: element}}, upsert=True
+            if not driver or not xpath:
+                logging.error("Invalid driver or XPath provided.")
+                return None
+
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.XPATH, xpath))
             )
 
-            if result.modified_count > 0:
-                logging.info(f"Document with _id {doc_id} was updated.")
-            elif result.upserted_id:
-                logging.info(f"Document with _id {doc_id} was inserted.")
+            elements = driver.find_elements(By.XPATH, xpath)
+            if elements:
+                return elements
             else:
-                logging.info(f"No change made to document with _id {doc_id}.")
+                logging.warning(f"No elements found for XPath: {xpath}")
+                return None
+
+        except TimeoutException:
+            logging.error(f"Timeout: Element not found within {timeout} seconds for XPath")
         except Exception as e:
-            logging.error(f"Unexpected error: {str(e)}")
-            raise
+            logging.error(f"An error occurred in xpath_verification_function: {e}", exc_info=True)
+
+        return None
+
 
     # ---------------------------------------
     # :: Email Send Function
@@ -510,7 +575,6 @@ class BlueBook:
     def __del__(self):
         try:
             logging.info("Calling excel file save function...")
-            self.excel_file_save_function()
             if self.driver:
                 self.driver.quit()
             if self.client:
