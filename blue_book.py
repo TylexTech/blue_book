@@ -17,7 +17,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import WebDriverException,TimeoutException
+from selenium.common.exceptions import WebDriverException, TimeoutException
 
 # ----------------------------------
 # :: ENV Variable Loader
@@ -129,12 +129,18 @@ class BlueBook:
                         logging.warning("Empty contractor encountered, skipping.")
                         continue
 
-                    logging.info(f"Processing contractor: {self.contractor} in location: {self.location}")
+                    logging.info(
+                        f"Processing contractor: {self.contractor} in location: {self.location}"
+                    )
                     self.driver.get(base_url)
-                    href_data_list = self.page_number_return(contractor=contractor, location=location)
-                    
+                    href_data_list = self.page_number_return(
+                        contractor=contractor, location=location
+                    )
+
                     if not href_data_list:
-                        logging.warning(f"No hrefs found to process for {contractor} in {location}.")
+                        logging.warning(
+                            f"No hrefs found to process for {contractor} in {location}."
+                        )
                         continue
 
                     operations = []
@@ -161,7 +167,9 @@ class BlueBook:
 
                     if operations:
                         result = self.collection.bulk_write(operations)
-                        logging.info(f"Bulk write completed: {result.inserted_count} inserted, {result.modified_count} updated.")
+                        logging.info(
+                            f"Bulk write completed: {result.inserted_count} inserted, {result.modified_count} updated."
+                        )
                     else:
                         logging.info("No new hrefs to insert.")
 
@@ -170,11 +178,11 @@ class BlueBook:
         finally:
             self.get_element_page()
 
-
-
     def page_number_return(self, contractor, location):
         try:
-            url = self.perform_search_and_input_fields(contractor=contractor, location=location)
+            url = self.perform_search_and_input_fields(
+                contractor=contractor, location=location
+            )
             if not url or not url.strip():
                 logging.error("Invalid URL provided.")
                 return None
@@ -182,7 +190,9 @@ class BlueBook:
             self.driver.get(url)
             logging.info(f"Fetching page number from URL: {url}")
 
-            page_number = self.xpath_varification_function(self.driver, page, timeout=20)
+            page_number = self.xpath_varification_function(
+                self.driver, page, timeout=10
+            )
 
             if not page_number:
                 logging.error("Page number element not found.")
@@ -195,22 +205,28 @@ class BlueBook:
 
             numbers = max(map(int, re.findall(r"\d+", page_text)))
             self.collection.create_index("href", unique=True)
-
+            existing_hrefs = {
+                doc["href"] for doc in self.collection.find({}, {"href": 1})
+            }
             href_data_list = []
             for i in range(1, numbers + 1):
                 page_url = f"{url}&page={i}"
                 self.driver.get(page_url)
                 logging.info(f"Processing page {i}: {page_url}")
 
-                anchor_elements = self.xpath_varification_function(self.driver, contact_us)
+                anchor_elements = self.xpath_varification_function(
+                    self.driver, contact_us
+                )
 
                 if not anchor_elements:
                     logging.warning(f"No anchor elements found on page {i}.")
                     continue
 
                 page_hrefs = [
-                    {"href": anchor.get_attribute("href")}
-                    for anchor in anchor_elements if anchor.get_attribute("href")
+                    {"href": href}
+                    for anchor in anchor_elements
+                    if (href := anchor.get_attribute("href"))
+                    and href not in existing_hrefs
                 ]
 
                 if page_hrefs:
@@ -222,13 +238,16 @@ class BlueBook:
                 return None
 
             existing_hrefs = set(
-                doc["href"] for doc in self.collection.find(
+                doc["href"]
+                for doc in self.collection.find(
                     {"href": {"$in": [data["href"] for data in href_data_list]}},
-                    {"href": 1}
+                    {"href": 1},
                 )
             )
 
-            new_hrefs = [data for data in href_data_list if data["href"] not in existing_hrefs]
+            new_hrefs = [
+                data for data in href_data_list if data["href"] not in existing_hrefs
+            ]
 
             if not new_hrefs:
                 logging.info("All hrefs already exist in the database. Skipping.")
@@ -238,9 +257,10 @@ class BlueBook:
             return new_hrefs
 
         except Exception as e:
-            logging.error(f"An error occurred in page_number_return: {e}", exc_info=True)
+            logging.error(
+                f"An error occurred in page_number_return: {e}", exc_info=True
+            )
             return None
-
 
     # -----------------------------------------
     # :: Perform Search and Input Function
@@ -250,21 +270,23 @@ class BlueBook:
     This function automates a search by entering a contractor and location into input fields, clicking the search button, and returning the updated URL. 
     If elements are missing or an error occurs, it logs the issue and returns None.
     """
-    
+
     def perform_search_and_input_fields(self, contractor, location):
         try:
             wait = WebDriverWait(self.driver, 30)
-            logging.info(f"Performing search for contractor: {contractor} in location: {location}")
+            logging.info(
+                f"Performing search for contractor: {contractor} in location: {location}"
+            )
 
- 
-            search_term_input = self.xpath_varification_function(self.driver, search_term)
+            search_term_input = self.xpath_varification_function(
+                self.driver, search_term
+            )
             if search_term_input:
                 search_term_input[0].clear()
                 search_term_input[0].send_keys(contractor)
             else:
                 logging.error("Search term input field not found!")
-                return None  
-
+                return None
 
             region_input = self.xpath_varification_function(self.driver, region)
             if region_input:
@@ -272,7 +294,7 @@ class BlueBook:
                 region_input[0].send_keys(location)
             else:
                 logging.error("Region input field not found!")
-                return None 
+                return None
 
             search_buttons = self.driver.find_elements(By.XPATH, search_button)
             if search_buttons:
@@ -283,12 +305,14 @@ class BlueBook:
                 return self.driver.current_url
             else:
                 logging.error("Search button not found!")
-                return None 
+                return None
 
         except Exception as e:
-            logging.error(f"An error occurred in perform_search_and_input_fields: {e}", exc_info=True)
+            logging.error(
+                f"An error occurred in perform_search_and_input_fields: {e}",
+                exc_info=True,
+            )
             return None
-
 
     # ----------------------------------
     # :: Phone Page Function
@@ -345,6 +369,24 @@ class BlueBook:
                         logging.warning(f"No {element_name} found on {full_url}")
                 except Exception as e:
                     logging.error(f"Error while processing {full_url}")
+
+    def mongodb_update_function(self, collection, element_name, text, doc_id):
+        try:
+            result = collection.update_one(
+                {"_id": doc_id}, {"$set": {element_name: text}}
+            )
+
+            if result.modified_count > 0:
+                logging.info(
+                    f"Successfully updated document {doc_id}: {element_name} -> {text}"
+                )
+            else:
+                logging.warning(
+                    f"No changes made to document {doc_id} (may already have this value)"
+                )
+
+        except Exception as e:
+            logging.error(f"Error updating MongoDB document {doc_id}: {str(e)}")
 
     # ----------------------------------
     # :: Google Chrome Function
@@ -428,12 +470,15 @@ class BlueBook:
                 return None
 
         except TimeoutException:
-            logging.error(f"Timeout: Element not found within {timeout} seconds for XPath")
+            logging.error(
+                f"Timeout: Element not found within {timeout} seconds for XPath"
+            )
         except Exception as e:
-            logging.error(f"An error occurred in xpath_verification_function: {e}", exc_info=True)
+            logging.error(
+                f"An error occurred in xpath_verification_function: {e}", exc_info=True
+            )
 
         return None
-
 
     # ---------------------------------------
     # :: Email Send Function
@@ -595,7 +640,7 @@ This main function instantiates the BlueBook spider, starts the scraping process
 def main():
     try:
         spider = BlueBook()
-        spider.start_requests()
+        spider.get_element_page()
     except Exception as e:
         logging.error(f"An error occurred in the main function: {e}")
 
