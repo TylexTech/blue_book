@@ -59,11 +59,15 @@ address = os.getenv("ADDRESS")
 base_url = os.getenv("BASE_URL")
 contact_us = os.getenv("CONTACT_US")
 company_name = os.getenv("COMPANY_NAME")
+trade_button = os.getenv("TRADE_BUTTON")
+region_button = os.getenv("REGION_BUTTON")
 search_button = os.getenv("SEARCH_BUTTON")
 chrome_driver = os.getenv("CHROME_DRIVER")
 search_term = os.getenv("SEARCH_TERM_INPUT")
 mongo_connection = os.getenv("MONGO_CONNECTION")
 locations = os.getenv("LOCATION", "").split(",")
+trade_button_check = os.getenv("TRADE_BUTTON_CHECK")
+region_button_check = os.getenv("REGION_BUTTON_CHECK")
 contractors = os.getenv("CONTRACTORS", "").split(",")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 
@@ -284,6 +288,10 @@ class BlueBook:
             if search_term_input:
                 search_term_input[0].clear()
                 search_term_input[0].send_keys(contractor)
+                trade_buttons_checks = self.xpath_varification_function(self.driver, trade_button_check)
+                if trade_buttons_checks:
+                    trade_buttons = self.xpath_varification_function(self.driver, trade_button)
+                    trade_buttons[0].click()
             else:
                 logging.error("Search term input field not found!")
                 return None
@@ -292,10 +300,15 @@ class BlueBook:
             if region_input:
                 region_input[0].clear()
                 region_input[0].send_keys(location)
+                region_buttons_checks = self.xpath_varification_function(self.driver, region_button_check)
+                if region_buttons_checks:
+                    region_buttons = self.xpath_varification_function(self.driver, region_button)
+                    region_buttons[0].click()
             else:
                 logging.error("Region input field not found!")
                 return None
-
+                
+                
             search_buttons = self.driver.find_elements(By.XPATH, search_button)
             if search_buttons:
                 current_url = self.driver.current_url
@@ -369,6 +382,9 @@ class BlueBook:
                         logging.warning(f"No {element_name} found on {full_url}")
                 except Exception as e:
                     logging.error(f"Error while processing {full_url}")
+
+
+
 
     def mongodb_update_function(self, collection, element_name, text, doc_id):
         try:
@@ -640,7 +656,7 @@ This main function instantiates the BlueBook spider, starts the scraping process
 def main():
     try:
         spider = BlueBook()
-        spider.get_element_page()
+        spider.start_requests()
     except Exception as e:
         logging.error(f"An error occurred in the main function: {e}")
 
