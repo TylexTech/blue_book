@@ -65,12 +65,20 @@ search_button = os.getenv("SEARCH_BUTTON")
 chrome_driver = os.getenv("CHROME_DRIVER")
 search_term = os.getenv("SEARCH_TERM_INPUT")
 mongo_connection = os.getenv("MONGO_CONNECTION")
-locations = os.getenv("LOCATION", "").split(",")
+# locations = os.getenv("LOCATION", "").split(",")
 trade_button_check = os.getenv("TRADE_BUTTON_CHECK")
 region_button_check = os.getenv("REGION_BUTTON_CHECK")
 contractors = os.getenv("CONTRACTORS", "").split(",")
 excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 
+
+locations = [
+    "California - Los Angeles, Santa Barbara, Ventura Region",
+    # "California - Orange, Riverside, San Bernardino Region",
+    # "California North - San Francisco, Oakland, San Jose Region",
+    # "California Central Valley - Sacramento, Fresno, Bakersfield Region",
+    # "California South - San Diego, Imperial Region"
+]
 # ----------------------------------
 # :: Blue Book Class
 # ----------------------------------
@@ -195,7 +203,7 @@ class BlueBook:
             logging.info(f"Fetching page number from URL: {url}")
 
             page_number = self.xpath_varification_function(
-                self.driver, page, timeout=10
+                self.driver, page, timeout=3
             )
 
             if not page_number:
@@ -219,7 +227,7 @@ class BlueBook:
                 logging.info(f"Processing page {i}: {page_url}")
 
                 anchor_elements = self.xpath_varification_function(
-                    self.driver, contact_us
+                    self.driver, contact_us,timeout=3
                 )
 
                 if not anchor_elements:
@@ -277,7 +285,7 @@ class BlueBook:
 
     def perform_search_and_input_fields(self, contractor, location):
         try:
-            wait = WebDriverWait(self.driver, 30)
+            wait = WebDriverWait(self.driver, 3)
             logging.info(
                 f"Performing search for contractor: {contractor} in location: {location}"
             )
@@ -288,9 +296,9 @@ class BlueBook:
             if search_term_input:
                 search_term_input[0].clear()
                 search_term_input[0].send_keys(contractor)
-                trade_buttons_checks = self.xpath_varification_function(self.driver, trade_button_check)
+                trade_buttons_checks = self.xpath_varification_function(self.driver, trade_button_check,timeout=3)
                 if trade_buttons_checks:
-                    trade_buttons = self.xpath_varification_function(self.driver, trade_button)
+                    trade_buttons = self.xpath_varification_function(self.driver, trade_button,timeout=3)
                     trade_buttons[0].click()
             else:
                 logging.error("Search term input field not found!")
@@ -300,9 +308,9 @@ class BlueBook:
             if region_input:
                 region_input[0].clear()
                 region_input[0].send_keys(location)
-                region_buttons_checks = self.xpath_varification_function(self.driver, region_button_check)
+                region_buttons_checks = self.xpath_varification_function(self.driver, region_button_check,timeout=3)
                 if region_buttons_checks:
-                    region_buttons = self.xpath_varification_function(self.driver, region_button)
+                    region_buttons = self.xpath_varification_function(self.driver, region_button,timeout=3)
                     region_buttons[0].click()
             else:
                 logging.error("Region input field not found!")
@@ -361,7 +369,7 @@ class BlueBook:
                 try:
                     self.driver.get(full_url)
                     time.sleep(1)
-                    elements = self.xpath_varification_function(self.driver, element)
+                    elements = self.xpath_varification_function(self.driver, element,timeout=5)
 
                     if elements:
                         for component in elements:
@@ -557,11 +565,18 @@ class BlueBook:
 
     """
 
+
+
     def excel_file_save_function(self):
         try:
             for location in locations:
+                logging.info(f"Processing location: {location}")
+
+                # Create a dictionary to store DataFrames for each contractor
+                excel_data = {}
+
                 for contractor in contractors:
-                    logging.info(f"Processing records for: {contractor}")
+                    logging.info(f"Processing records for contractor: {contractor}")
                     results = self.collection.find(
                         {
                             "trade": contractor,
@@ -570,10 +585,8 @@ class BlueBook:
                             "company_name": {"$exists": True},
                         }
                     )
-                    documents = []
-                    for doc in results:
-                        doc = defaultdict(lambda: "not found", doc)
-                        documents.append(doc)
+
+                    documents = [defaultdict(lambda: "not found", doc) for doc in results]
 
                     required_columns = [
                         "company_name",
@@ -584,46 +597,44 @@ class BlueBook:
                         "location",
                         "trade",
                     ]
+
                     if documents:
-                        logging.info(
-                            f"Found {len(documents)} valid documents for {contractor}."
-                        )
+                        logging.info(f"Found {len(documents)} valid documents for {contractor}.")
                         df = pd.DataFrame(documents, columns=required_columns)
-                        if not os.path.exists(excel_sheet_folder_path):
-                            os.makedirs(excel_sheet_folder_path)
-                        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                        file_name = os.path.join(
-                            excel_sheet_folder_path, f"{contractor}_{timestamp}.xlsx"
-                        )
+                        excel_data[contractor] = df
 
-                        try:
-                            logging.info(
-                                f"Saving file as {file_name} for {contractor}..."
-                            )
-                            df.to_excel(file_name, index=False, header=True)
-                        except Exception as e:
-                            logging.error(
-                                f"Error saving Excel file for {contractor}: {e}"
-                            )
-                            continue
-                        email_status = self.email_send(
-                            file_path=file_name, count=len(documents)
-                        )
-                        if email_status:
-                            logging.info(f"Email sent successfully for {contractor}.")
-                            self.collection.update_many(
-                                {"send_email": "No", "trade": contractor},
-                                {"$set": {"send_email": "Yes"}},
-                            )
-                        else:
-                            logging.error(f"Email failed for {contractor}.")
-                    else:
-                        logging.warning(f"No valid documents found for {contractor}.")
+                if excel_data:
+                    if not os.path.exists(excel_sheet_folder_path):
+                        os.makedirs(excel_sheet_folder_path)
 
-                return "All cities processed."
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    file_name = os.path.join(
+                        excel_sheet_folder_path, f"{location}_{timestamp}.xlsx"
+                    )
+
+                    try:
+                        logging.info(f"Saving file: {file_name} for location {location}...")
+                        with pd.ExcelWriter(file_name, engine="xlsxwriter") as writer:
+                            for contractor, df in excel_data.items():
+                                df.to_excel(writer, sheet_name=contractor[:31], index=False, header=True)
+                        logging.info(f"Excel file saved successfully for {location}.")
+                        
+                        self.collection.update_many(
+                            {"send_email": "No", "location": location},
+                            {"$set": {"send_email": "Yes"}},
+                        )
+                        
+                    except Exception as e:
+                        logging.error(f"Error saving Excel file for {location}: {e}")
+                        continue
+                else:
+                    logging.warning(f"No valid documents found for {location}.")
+
+            return "All locations processed."
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
             return "An error occurred while processing the file."
+
 
     # ----------------------------------
     # :: ___del__ function
@@ -656,7 +667,7 @@ This main function instantiates the BlueBook spider, starts the scraping process
 def main():
     try:
         spider = BlueBook()
-        spider.start_requests()
+        spider.get_element_page()
     except Exception as e:
         logging.error(f"An error occurred in the main function: {e}")
 
