@@ -73,11 +73,9 @@ excel_sheet_folder_path = os.getenv("EXCEL_SHEET_FOLDER_PATH")
 
 
 locations = [
-    "California - Los Angeles, Santa Barbara, Ventura Region",
-    # "California - Orange, Riverside, San Bernardino Region",
-    # "California North - San Francisco, Oakland, San Jose Region",
-    # "California Central Valley - Sacramento, Fresno, Bakersfield Region",
-    # "California South - San Diego, Imperial Region"
+    "Pennsylvania East - Philadelphia, & Delaware Region",
+    "Pennsylvania West - Pittsburgh, & West Virginia - Wheeling Region",
+    "Pennsylvania Furnace, PA"
 ]
 # ----------------------------------
 # :: Blue Book Class
@@ -568,72 +566,74 @@ class BlueBook:
 
 
     def excel_file_save_function(self):
-        try:
-            for location in locations:
-                logging.info(f"Processing location: {location}")
+         try:
+             db_name = "bluebook"
+             collection_name = "company_details"
+             client = pymongo.MongoClient(mongo_connection)
+             db = client[db_name]
+             collection = db[collection_name]
+             for location in locations:
+                 for contractor in contractors:
+                     logging.info(f"Processing records for: {contractor}")
+                     results = self.collection.find(
+                         {
+                             "send_email": "No",
+                         }
+                     )
+                     documents = []
+                     for doc in results:
+                         doc = defaultdict(lambda: "not found", doc)
+                         documents.append(doc)
 
-                # Create a dictionary to store DataFrames for each contractor
-                excel_data = {}
-
-                for contractor in contractors:
-                    logging.info(f"Processing records for contractor: {contractor}")
-                    results = self.collection.find(
-                        {
-                            "trade": contractor,
-                            "location": location,
-                            "send_email": "No",
-                            "company_name": {"$exists": True},
-                        }
-                    )
-
-                    documents = [defaultdict(lambda: "not found", doc) for doc in results]
-
-                    required_columns = [
-                        "company_name",
-                        "phone",
-                        "dir",
-                        "website",
-                        "address",
-                        "location",
-                        "trade",
-                    ]
-
-                    if documents:
-                        logging.info(f"Found {len(documents)} valid documents for {contractor}.")
-                        df = pd.DataFrame(documents, columns=required_columns)
-                        excel_data[contractor] = df
-
-                if excel_data:
-                    if not os.path.exists(excel_sheet_folder_path):
-                        os.makedirs(excel_sheet_folder_path)
-
-                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                    file_name = os.path.join(
-                        excel_sheet_folder_path, f"{location}_{timestamp}.xlsx"
-                    )
-
-                    try:
-                        logging.info(f"Saving file: {file_name} for location {location}...")
-                        with pd.ExcelWriter(file_name, engine="xlsxwriter") as writer:
-                            for contractor, df in excel_data.items():
-                                df.to_excel(writer, sheet_name=contractor[:31], index=False, header=True)
-                        logging.info(f"Excel file saved successfully for {location}.")
-                        
-                        self.collection.update_many(
-                            {"send_email": "No", "location": location},
-                            {"$set": {"send_email": "Yes"}},
-                        )
-                        
-                    except Exception as e:
-                        logging.error(f"Error saving Excel file for {location}: {e}")
-                        continue
-                else:
-                    logging.warning(f"No valid documents found for {location}.")
-
-            return "All locations processed."
-        except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
-            return "An error occurred while processing the file."
+                     required_columns = [
+                         "company_name",
+                         "phone",
+                         "dir",
+                         "website",
+                         "address",
+                         "location",
+                         "trade",
+                     ]
+                     if documents:
+                         logging.info(
+                             f"Found {len(documents)} valid documents for {contractor}."
+                         )
+                         df = pd.DataFrame(documents, columns=required_columns)
+                         if not os.path.exists(excel_sheet_folder_path):
+                             os.makedirs(excel_sheet_folder_path)
+                         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                         file_name = os.path.join(
+                             excel_sheet_folder_path, f"{contractor}_{timestamp}.xlsx"
+                         )
+ 
+                         try:
+                             logging.info(
+                                 f"Saving file as {file_name} for {contractor}..."
+                             )
+                             df.to_excel(file_name, index=False, header=True)
+                         except Exception as e:
+                             logging.error(
+                                 f"Error saving Excel file for {contractor}: {e}"
+                             )
+                             continue
+                         email_status = self.email_send(
+                             file_path=file_name, count=len(documents)
+                         )
+                         if email_status:
+                             logging.info(f"Email sent successfully for {contractor}.")
+                             self.collection.update_many(
+                                 {"send_email": "No", "trade": contractor},
+                                 {"$set": {"send_email": "Yes"}},
+                             )
+                         else:
+                             logging.error(f"Email failed for {contractor}.")
+                     else:
+                         logging.warning(f"No valid documents found for {contractor}.")
+ 
+                 return "All cities processed."
+         except Exception as e:
+             logging.error(f"An unexpected error occurred: {e}")
+             return "An error occurred while processing the file."
 
 
     # ----------------------------------
@@ -667,7 +667,7 @@ This main function instantiates the BlueBook spider, starts the scraping process
 def main():
     try:
         spider = BlueBook()
-        spider.get_element_page()
+        spider.start_requests()
     except Exception as e:
         logging.error(f"An error occurred in the main function: {e}")
 
